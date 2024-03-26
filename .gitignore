@@ -1,3 +1,8 @@
+advi-master
+auto-diff-variational-inference-master
+trial_reg.ipynb
+data/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
