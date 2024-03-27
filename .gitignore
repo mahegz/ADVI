@@ -1,8 +1,9 @@
 advi-master
+ADVI-master
 auto-diff-variational-inference-master
 trial_reg.ipynb
 data/
-
+old_new_jax_example.ipynb
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
