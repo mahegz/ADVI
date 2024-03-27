@@ -1,11 +1,12 @@
-
 import jax.numpy as jnp
 import jax
 import jax.random as jrandom
 from tensorflow_probability.substrates import jax as tfp
+
 bijectors = tfp.bijectors
 sigmoid_transform = bijectors.IteratedSigmoidCentered()
 from models import Model
+
 
 def mean_field_obj(param, sample, model):
     mu = param["mu"]
@@ -17,6 +18,7 @@ def mean_field_obj(param, sample, model):
     entropy = 0.5 * jnp.sum(jnp.log((2 * jnp.pi * jnp.e) * sigma**2))
     return log_likelyhood + log_prior + log_det_jac + entropy
 
+
 mean_field_grad = jax.grad(mean_field_obj, argnums=0)
 mean_field_grad_val = jax.value_and_grad(mean_field_obj, argnums=0)
 v_mean_field_grad_val = jax.vmap(
@@ -24,6 +26,7 @@ v_mean_field_grad_val = jax.vmap(
     in_axes=(None, 0, None),
     out_axes=(0, {"mu": 0, "sigma": 0}),
 )
+
 
 @jax.jit
 def adaptive_step_size(iter, s_k, grads, stepsize=0.5, momentum=0.1, tau=1):
@@ -90,7 +93,14 @@ class mean_field_advi:
                 print(loss_val[-1])
                 # break
         return loss_val
-    
+
     def sample(self, key):
-        sample = jrandom.normal(key, shape=(self.model.dim,))*self.params['sigma']+self.params['mu']
+        sample = (
+            jrandom.normal(key, shape=(self.model.dim,)) * self.params["sigma"]
+            + self.params["mu"]
+        )
         return self.model.t_inv_map(sample)
+
+    def sample_advi(self, key):
+        r_norm = jrandom.normal(key, shape=(dim, ))
+        return r_norm*self.params['sigma']+self.params['mu']

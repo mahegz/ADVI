@@ -2,7 +2,7 @@ import jax.numpy as jnp
 import jax.scipy.stats as stats
 from typing import NamedTuple, Mapping
 from tensorflow_probability.substrates import jax as tfp
-
+import jax
 bijectors = tfp.bijectors
 sigmoid_transform = bijectors.IteratedSigmoidCentered()
 
@@ -73,7 +73,6 @@ def NMF_Model_PoissonGamma(data, rank, gamma_prior_shape, gamma_prior_scale):
 
     def log_prior(params):
         theta, beta = t_inv_map(params)
-        # theta_prior = stats.expon.logpdf(theta,exp_prior)
         theta_prior = stats.gamma.logpdf(
             theta / gamma_prior_scale, gamma_prior_shape
         ) - jnp.log(gamma_prior_scale)
@@ -145,3 +144,59 @@ def NMF_Model_PoissonDirExp(data, rank, dir_prior=1, exp_prior=4):
         jac_t_inv_map=jac_t_inv_map,
         log_det_jac_t_inv_map=log_det_jac_t_inv_map,
     )
+
+
+def HLR_Model(data, beta_prior=100, alpha_prior=1):
+    dim = 34
+    
+    def jac_t_inv_map(params):
+        raise NotImplementedError("methods not implemented")
+
+    def log_det_jac_t_inv_map(params):
+        return 0.0
+     
+    def t_inv_map(params):
+        beta = params[:5]
+        alpha_age = params[5:9]
+        alpha_regions = params[9:14]
+        alpha_edu = params[14:18]
+        alpha_age_edu = params[18:34]
+        return beta, alpha_age, alpha_regions, alpha_edu, alpha_age_edu
+
+
+    def log_likelyhood(params):
+        beta, alpha_age, alpha_regions, alpha_edu, alpha_age_edu = t_inv_map(params)
+        regression = (
+            beta[0]
+            + data["female"] * beta[1]
+            + data["black"] * beta[2]
+            + data["female_black"] * beta[3]
+            + data["prev"] * beta[4]
+        )
+        prob_1 = (
+            regression
+            + alpha_age[data["age"]]
+            + alpha_edu[data["edu"]]
+            + alpha_regions[data["regions"]]
+            + alpha_age_edu[data["age_edu"]]
+            + beta[0]
+        )
+        prob1 = jax.nn.sigmoid(prob_1)
+        likelyhood = prob1 * (2 * data["y"] - 1) + 1 - data["y"]
+        return jnp.sum(jnp.log(likelyhood))
+    
+    def log_prior(params):
+        beta, alpha_age, alpha_regions, alpha_edu, alpha_age_edu = t_inv_map(params)
+        alpha = jnp.hstack((alpha_age, alpha_regions, alpha_edu, alpha_age_edu))
+        log_prior = jnp.sum(stats.norm.logpdf(beta, scale=beta_prior)) + jnp.sum(
+            stats.norm.logpdf(alpha, scale=alpha_prior)
+        )
+        return log_prior
+    
+    return Model(dim=dim,
+                 t_inv_map=t_inv_map,
+                 log_prior=log_prior, 
+                 log_likelyhood=log_likelyhood,
+                 log_det_jac_t_inv_map=log_det_jac_t_inv_map, 
+                 jac_t_inv_map=jac_t_inv_map)
+    
