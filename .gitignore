@@ -8,6 +8,7 @@ old_new_jax_example.ipynb
 __pycache__/
 *.py[cod]
 *$py.class
+figures/
 
 # C extensions
 *.so

@@ -83,10 +83,10 @@ class mean_field_advi:
                 step_size, s_k = adaptive_step_size(
                     i, s_k, mean_grad, stepsize=learning_rate, momentum=alpha
                 )
-
-            step_size = jax.tree_map(
-                lambda x: learning_rate * jnp.ones(x.shape), self.params
-            )
+            else:
+                step_size = jax.tree_map(
+                    lambda x: learning_rate * jnp.ones(x.shape), self.params
+                )
             self.params = sgd_update_params(self.params, mean_grad, step_size)
 
             if i % print_every == 0:
