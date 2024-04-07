@@ -6,6 +6,7 @@ __pycache__/
 *$py.class
 figures/
 *.pdf
+old/
 # C extensions
 *.so
 
