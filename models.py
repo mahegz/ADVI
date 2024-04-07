@@ -3,6 +3,7 @@ import jax.scipy.stats as stats
 from typing import NamedTuple, Mapping
 from tensorflow_probability.substrates import jax as tfp
 import jax
+
 bijectors = tfp.bijectors
 sigmoid_transform = bijectors.IteratedSigmoidCentered()
 
@@ -20,7 +21,6 @@ def LinearModel(X, y, a_zero, b_zero):
     dim = X.shape[1] + 1
 
     def t_inv_map(param):
-        # Mapping from R^d to R^{d-1} \times R_{++}
         return param[: dim - 1], jnp.exp(param[dim - 1])
 
     def log_prior(param):
@@ -97,7 +97,54 @@ def NMF_Model_PoissonGamma(data, rank, gamma_prior_shape, gamma_prior_scale):
     )
 
 
-def NMF_Model_PoissonDirExp(data, rank, dir_prior=1, exp_prior=4):
+def new_NMF_Model_PoissonDirExp(data, rank, dir_prior=1, exp_prior=4):
+    num_samples, num_dims = data.shape
+    dim = num_samples * (rank - 1) + rank * num_dims
+
+    def t_inv_map(params):
+        theta, beta = jnp.split(params, [(num_samples) * (rank - 1)])
+        theta = jnp.reshape(theta, (num_samples, rank - 1))
+        beta = jnp.reshape(beta, (rank, num_dims))
+        theta = sigmoid_transform.forward(theta)
+        beta = jnp.exp(beta + 1)
+        return theta, beta
+
+    def jac_t_inv_map(params):
+        raise NotImplemented
+
+    def log_det_jac_t_inv_map(params):
+        theta, beta = jnp.split(params, [(num_samples - 1) * rank])
+        theta = jnp.reshape(theta, (num_samples - 1, rank))
+        log_det = jnp.sum(sigmoid_transform.forward_log_det_jacobian(theta))
+        det = jnp.sum(jnp.log(jnp.exp(beta + 1)))
+        return log_det + det
+
+    def log_prior(params):
+        theta, beta = t_inv_map(params)
+
+        theta_prior = jnp.log(
+            stats.dirichlet.pdf(theta.T, jnp.full(shape=(rank,), fill_value=dir_prior))
+        )
+        beta_prior = jnp.sum(stats.expon.logpdf(beta, scale=exp_prior))
+        return jnp.sum(theta_prior) + jnp.sum(beta_prior)
+
+    def log_likelyhood(params):
+        theta, beta = t_inv_map(params)
+        reconst = theta @ beta
+        log_like = stats.poisson.logpmf(data, reconst)
+        return jnp.sum(log_like)
+
+    return Model(
+        dim=dim,
+        log_prior=log_prior,
+        log_likelyhood=log_likelyhood,
+        t_inv_map=t_inv_map,
+        jac_t_inv_map=jac_t_inv_map,
+        log_det_jac_t_inv_map=log_det_jac_t_inv_map,
+    )
+
+
+def old_NMF_Model_PoissonDirExp(data, rank, dir_prior=1, exp_prior=4):
     num_samples, num_dims = data.shape
     dim = (num_samples - 1) * rank + rank * num_dims
 
@@ -106,7 +153,7 @@ def NMF_Model_PoissonDirExp(data, rank, dir_prior=1, exp_prior=4):
         theta = jnp.reshape(theta, (num_samples - 1, rank))
         beta = jnp.reshape(beta, (rank, num_dims))
         theta = sigmoid_transform.forward(theta.T).T
-        beta = jnp.log(jnp.exp(beta) + 1)
+        beta = jnp.exp(beta + 1)
         return theta, beta
 
     def jac_t_inv_map(params):
@@ -116,7 +163,7 @@ def NMF_Model_PoissonDirExp(data, rank, dir_prior=1, exp_prior=4):
         theta, beta = jnp.split(params, [(num_samples - 1) * rank])
         theta = jnp.reshape(theta, (num_samples - 1, rank))
         log_det = jnp.sum(sigmoid_transform.forward_log_det_jacobian(theta.T))
-        det = jnp.sum(jnp.log(1 / (1 + jnp.exp(-beta))))
+        det = jnp.sum(jnp.log(jnp.exp(beta + 1)))
         return log_det + det
 
     def log_prior(params):
@@ -148,13 +195,13 @@ def NMF_Model_PoissonDirExp(data, rank, dir_prior=1, exp_prior=4):
 
 def HLR_Model(data, beta_prior=100, alpha_prior=1):
     dim = 34
-    
+
     def jac_t_inv_map(params):
         raise NotImplementedError("methods not implemented")
 
     def log_det_jac_t_inv_map(params):
         return 0.0
-     
+
     def t_inv_map(params):
         beta = params[:5]
         alpha_age = params[5:9]
@@ -162,7 +209,6 @@ def HLR_Model(data, beta_prior=100, alpha_prior=1):
         alpha_edu = params[14:18]
         alpha_age_edu = params[18:34]
         return beta, alpha_age, alpha_regions, alpha_edu, alpha_age_edu
-
 
     def log_likelyhood(params):
         beta, alpha_age, alpha_regions, alpha_edu, alpha_age_edu = t_inv_map(params)
@@ -184,7 +230,7 @@ def HLR_Model(data, beta_prior=100, alpha_prior=1):
         prob1 = jax.nn.sigmoid(prob_1)
         likelyhood = prob1 * (2 * data["y"] - 1) + 1 - data["y"]
         return jnp.sum(jnp.log(likelyhood))
-    
+
     def log_prior(params):
         beta, alpha_age, alpha_regions, alpha_edu, alpha_age_edu = t_inv_map(params)
         alpha = jnp.hstack((alpha_age, alpha_regions, alpha_edu, alpha_age_edu))
@@ -192,11 +238,12 @@ def HLR_Model(data, beta_prior=100, alpha_prior=1):
             stats.norm.logpdf(alpha, scale=alpha_prior)
         )
         return log_prior
-    
-    return Model(dim=dim,
-                 t_inv_map=t_inv_map,
-                 log_prior=log_prior, 
-                 log_likelyhood=log_likelyhood,
-                 log_det_jac_t_inv_map=log_det_jac_t_inv_map, 
-                 jac_t_inv_map=jac_t_inv_map)
-    
+
+    return Model(
+        dim=dim,
+        t_inv_map=t_inv_map,
+        log_prior=log_prior,
+        log_likelyhood=log_likelyhood,
+        log_det_jac_t_inv_map=log_det_jac_t_inv_map,
+        jac_t_inv_map=jac_t_inv_map,
+    )

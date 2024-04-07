@@ -43,6 +43,13 @@ def sgd_update_params(params, new_params, step_size):
     return jax.tree_map(lambda x, y, z: x + z * y, params, new_params, step_size)
 
 
+@jax.jit
+def rmsprop_step(s_k, new_grad, stepsize, alpha):
+    s_k = jax.tree_map(lambda x, y: alpha * x + (1 - alpha) * (y**2), s_k, new_grad)
+    stepsize = jax.tree_map(lambda x: stepsize / (jnp.sqrt(x) + 1e-06), s_k)
+    return stepsize, s_k
+
+
 class mean_field_advi:
     def __init__(self, model: Model) -> None:
         self.model = model
@@ -66,6 +73,7 @@ class mean_field_advi:
         print_every=100,
         alpha=0.1,
         adaptive=False,
+        rmsprop=True,
     ):
         loss_val = []
         jit_wrapper = lambda x, y: v_mean_field_grad_val(x, y, self.model)
@@ -80,9 +88,13 @@ class mean_field_advi:
             if adaptive:
                 if i == 0:
                     s_k = jax.tree_map(lambda x: x**2, mean_grad)
-                step_size, s_k = adaptive_step_size(
-                    i, s_k, mean_grad, stepsize=learning_rate, momentum=alpha
-                )
+                if rmsprop == True:
+                    step_size, s_k = rmsprop_step(s_k, mean_grad, learning_rate, alpha)
+                else:
+                    step_size, s_k = adaptive_step_size(
+                        i, s_k, mean_grad, stepsize=learning_rate, momentum=alpha
+                    )
+
             else:
                 step_size = jax.tree_map(
                     lambda x: learning_rate * jnp.ones(x.shape), self.params
@@ -101,6 +113,6 @@ class mean_field_advi:
         )
         return self.model.t_inv_map(sample)
 
-    def sample_advi(self, key):
-        r_norm = jrandom.normal(key, shape=(dim, ))
-        return r_norm*self.params['sigma']+self.params['mu']
+    def sample_advi(self, key, num):
+        r_norm = jrandom.normal(key, shape=(self.model.dim, num))
+        return r_norm * self.params["sigma"][:, None] + self.params["mu"][:, None]
